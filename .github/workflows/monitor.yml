@@ -1,19 +1,23 @@
-name: SIH Website Uptime Monitor
+name: SIH 24/7 Uptime Monitor
 
 on:
   schedule:
-    # Run every 5 minutes in GitHub's cloud
+    # Watchdog cron: triggers every 5 minutes in GitHub's cloud as a safety net
     - cron: '*/5 * * * *'
-  workflow_dispatch: # Allows manual trigger from GitHub web / mobile app
+  workflow_dispatch: # Can be triggered manually from GitHub Web / Phone App
 
 concurrency:
   group: sih-monitor
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
-  monitor:
+  monitor-loop:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 35
 
     steps:
       - name: Check out repository
@@ -25,25 +29,22 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install --no-cache-dir requests urllib3
+        run: pip install --no-cache-dir -r requirements.txt
 
-      - name: Monitor SIH Website (checks every 30 seconds)
+      - name: Run 60-second Continuous Monitor (runs for 30 checks / 30 mins)
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC || vars.NTFY_TOPIC || 'sih_status_alert_psp' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CHECK_INTERVAL: "60"
+          MAX_ITERATIONS: "30"
         run: |
-          echo "Starting monitor loop (runs for ~4 minutes)..."
-          # Run check every 30 seconds for 8 iterations within the 5-min window
-          for i in {1..8}; do
-            echo "--- Polling Attempt $i/8 at $(date) ---"
-            python3 check_sih.py
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 10 ]; then
-              echo ">>> Website is ONLINE! Notification dispatched to phone. Stopping current loop."
-              exit 0
-            fi
-            sleep 30
-          done
-          echo "Completed loop. Will be triggered again by the next scheduled run."
+          python3 check_sih.py
+
+      - name: Chain next run automatically (Infinite 24/7 loop)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Triggering next monitor cycle to keep running 24/7..."
+          gh workflow run monitor.yml --ref main || true

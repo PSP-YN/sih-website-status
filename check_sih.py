@@ -120,39 +120,60 @@ def check_sih_status():
         return False, f"Error: {e}"
 
 
+def monitor_continuous(interval_seconds: int = 60, max_iterations: int = None):
+    """
+    Monitors SIH website continuously every `interval_seconds`.
+    When online, sends urgent notifications to phone every 60 seconds.
+    """
+    iteration = 0
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting continuous monitor (interval: {interval_seconds}s)...")
+
+    while True:
+        iteration += 1
+        now_str = time.strftime('%Y-%m-%d %H:%M:%S')
+        is_online, details = check_sih_status()
+        print(f"[{now_str}] Check #{iteration}: {details}")
+
+        if is_online:
+            title = "SIH WEBSITE IS ONLINE!"
+            message = (
+                f"🚨 SIH Portal is LIVE and responding!\n\n"
+                f"Status: {details}\n"
+                f"Link: {SIH_URL}\n\n"
+                f"👉 Submit your PPT now! (Alert #{iteration})"
+            )
+            print(f">>> [{now_str}] SITE IS ONLINE! Sending urgent notification to phone...")
+            send_ntfy_notification(title, message, priority="urgent")
+            send_telegram_notification(f"<b>{title}</b>\n\n{message}")
+        else:
+            print(f"[{now_str}] Site is down/gateway error. Waiting {interval_seconds}s...")
+
+        if max_iterations and iteration >= max_iterations:
+            print(f"Reached max iterations ({max_iterations}). Exiting.")
+            break
+
+        time.sleep(interval_seconds)
+
+
 def main():
     if "--test" in sys.argv:
         print(">>> Sending TEST notification to verify phone reception...")
-        title = "🔔 SIH Alert Test Notification"
+        title = "SIH Alert Test Notification"
         message = (
             "If you received this, phone notifications are working perfectly!\n"
-            "You will be alerted the second SIH portal comes back online."
+            "You will be alerted every 60 seconds the moment SIH portal is online."
         )
         send_ntfy_notification(title, message, priority="urgent")
         send_telegram_notification(f"<b>{title}</b>\n\n{message}")
         print(">>> Test notification sent.")
         return
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Checking {SIH_URL}...")
-    is_online, details = check_sih_status()
-    print(f"Status: {details}")
+    # Interval in seconds (default: 60)
+    interval = int(os.environ.get("CHECK_INTERVAL", "60"))
+    # Max iterations per run (e.g., 20 checks for 20 minutes before GitHub Actions rotates)
+    max_iter = int(os.environ.get("MAX_ITERATIONS", "0")) or None
 
-    if is_online:
-        title = "SIH WEBSITE IS ONLINE!"
-        message = (
-            f"SIH Portal is back online!\n\n"
-            f"Status: {details}\n"
-            f"Link: {SIH_URL}\n\n"
-            f"Submit your PPT now before the server gets crowded!"
-        )
-        print(">>> WEBSITE IS ONLINE! Sending notification to phone...")
-        send_ntfy_notification(title, message, priority="urgent")
-        send_telegram_notification(f"<b>{title}</b>\n\n{message}")
-        # Exit code 10 signals to the workflow runner that website is online
-        sys.exit(10)
-    else:
-        print(">>> Website is still DOWN / Not ready. No alert sent.")
-        sys.exit(0)
+    monitor_continuous(interval_seconds=interval, max_iterations=max_iter)
 
 
 if __name__ == "__main__":

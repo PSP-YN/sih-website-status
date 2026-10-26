@@ -65,10 +65,10 @@ async function checkSIH() {
   }
 }
 
-async function notifyPhone() {
+async function notifyPhone(details) {
   const ntfyUrl = `https://ntfy.sh/${NTFY_TOPIC}`;
   const message =
-    "SIH Portal is back online!\n\nLink: https://sih.gov.in/\n\nSubmit your PPT now!";
+    `SIH Portal is back online!\n\nStatus: ${details}\nLink: ${SIH_URL}\n\nSubmit your PPT now before server gets overloaded!`;
 
   await fetch(ntfyUrl, {
     method: "POST",
