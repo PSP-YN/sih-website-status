@@ -15,7 +15,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 SIH_URL = "https://sih.gov.in/"
 # Unique default ntfy topic (can be overridden via environment variable NTFY_TOPIC)
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "sih_alert_uptime_notify")
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "sih_status_alert_psp")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
@@ -120,13 +120,20 @@ def check_sih_status():
         return False, f"Error: {e}"
 
 
-def monitor_continuous(interval_seconds: int = 60, max_iterations: int = None):
+def monitor_continuous(interval_seconds: int = 60, max_iterations: int = None, send_startup_ping: bool = False):
     """
     Monitors SIH website continuously every `interval_seconds`.
     When online, sends urgent notifications to phone every 60 seconds.
     """
     iteration = 0
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting continuous monitor (interval: {interval_seconds}s)...")
+
+    if send_startup_ping:
+        send_ntfy_notification(
+            "[GitHub Actions] Monitor Active",
+            f"SIH monitor is running in GitHub's cloud!\nChecking https://sih.gov.in every {interval_seconds}s.\nWebsite is currently DOWN. We will alert you the moment it goes LIVE.",
+            priority="default"
+        )
 
     while True:
         iteration += 1
@@ -135,12 +142,12 @@ def monitor_continuous(interval_seconds: int = 60, max_iterations: int = None):
         print(f"[{now_str}] Check #{iteration}: {details}")
 
         if is_online:
-            title = "SIH WEBSITE IS ONLINE!"
+            title = "[GitHub Actions] SIH WEBSITE IS ONLINE!"
             message = (
-                f"🚨 SIH Portal is LIVE and responding!\n\n"
+                f"SIH Portal is LIVE and responding!\n\n"
                 f"Status: {details}\n"
                 f"Link: {SIH_URL}\n\n"
-                f"👉 Submit your PPT now! (Alert #{iteration})"
+                f"Submit your PPT now! (Alert #{iteration})"
             )
             print(f">>> [{now_str}] SITE IS ONLINE! Sending urgent notification to phone...")
             send_ntfy_notification(title, message, priority="urgent")
@@ -172,8 +179,9 @@ def main():
     interval = int(os.environ.get("CHECK_INTERVAL", "60"))
     # Max iterations per run (e.g., 20 checks for 20 minutes before GitHub Actions rotates)
     max_iter = int(os.environ.get("MAX_ITERATIONS", "0")) or None
+    startup_ping = os.environ.get("STARTUP_PING", "true").lower() in ("true", "1", "yes")
 
-    monitor_continuous(interval_seconds=interval, max_iterations=max_iter)
+    monitor_continuous(interval_seconds=interval, max_iterations=max_iter, send_startup_ping=startup_ping)
 
 
 if __name__ == "__main__":

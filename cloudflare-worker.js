@@ -4,26 +4,40 @@
  * Triggers every 1 minute via Cron Trigger: * * * * *
  */
 
-// Replace with your unique topic name
+// Match your ntfy topic name
 const NTFY_TOPIC = "sih_status_alert_psp";
 const SIH_URL = "https://sih.gov.in/";
 
 export default {
   // Handles scheduled cron trigger (every 1 minute)
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(checkSIH());
+    ctx.waitUntil(checkSIH(false));
   },
 
-  // Also allows testing via browser GET request
+  // Allows testing & manual status check in browser
   async fetch(request, env, ctx) {
-    const result = await checkSIH();
+    const url = new URL(request.url);
+
+    // If you visit /test, it triggers a test push notification to phone
+    if (url.pathname === "/test") {
+      await sendNtfyNotification(
+        "[Cloudflare] Test Ping",
+        "Test successful! Cloudflare Worker is active and monitoring SIH every 60 seconds.",
+        "default"
+      );
+      return new Response("Test notification sent to your phone via ntfy!", {
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    const result = await checkSIH(true);
     return new Response(JSON.stringify(result, null, 2), {
       headers: { "Content-Type": "application/json" },
     });
   },
 };
 
-async function checkSIH() {
+async function checkSIH(isManual = false) {
   const timestamp = new Date().toISOString();
   try {
     const response = await fetch(SIH_URL, {
@@ -39,7 +53,7 @@ async function checkSIH() {
     const body = await response.text();
     const lowerBody = body.toLowerCase();
 
-    // Check if site is still returning 403 or Azure gateway error
+    // Azure gateway 403 / maintenance / server errors
     const isGatewayError =
       status === 403 ||
       lowerBody.includes("403 forbidden") ||
@@ -49,32 +63,48 @@ async function checkSIH() {
 
     if (isGatewayError || isServerError || isMaintenance) {
       console.log(`[${timestamp}] SIH is DOWN (Status ${status})`);
-      return { online: false, status, message: "Site still down" };
+      return {
+        online: false,
+        status,
+        message: "Site still down (Azure Gateway / 403 / Maintenance)",
+        checkedAt: timestamp,
+      };
     }
 
     if (status === 200) {
       console.log(`[${timestamp}] SIH is ONLINE! Sending push notification...`);
-      await notifyPhone();
-      return { online: true, status, message: "SIH is LIVE! Alert sent." };
+      await sendNtfyNotification(
+        "[Cloudflare] SIH WEBSITE IS ONLINE!",
+        `SIH Portal is back online!\n\nLink: ${SIH_URL}\n\nSubmit your PPT now!`,
+        "urgent"
+      );
+      return {
+        online: true,
+        status,
+        message: "SIH is LIVE! Notification dispatched to phone.",
+        checkedAt: timestamp,
+      };
     }
 
-    return { online: false, status, message: `Unexpected status ${status}` };
+    return {
+      online: false,
+      status,
+      message: `Unexpected status code: ${status}`,
+      checkedAt: timestamp,
+    };
   } catch (err) {
     console.error(`[${timestamp}] Fetch error: ${err.message}`);
-    return { online: false, error: err.message };
+    return { online: false, error: err.message, checkedAt: timestamp };
   }
 }
 
-async function notifyPhone(details) {
+async function sendNtfyNotification(title, message, priority = "urgent") {
   const ntfyUrl = `https://ntfy.sh/${NTFY_TOPIC}`;
-  const message =
-    `SIH Portal is back online!\n\nStatus: ${details}\nLink: ${SIH_URL}\n\nSubmit your PPT now before server gets overloaded!`;
-
   await fetch(ntfyUrl, {
     method: "POST",
     headers: {
-      Title: "SIH WEBSITE IS ONLINE!",
-      Priority: "urgent",
+      Title: title,
+      Priority: priority,
       Tags: "tada,rotating_light,white_check_mark",
       Click: SIH_URL,
       Actions: `view, Open SIH Portal, ${SIH_URL}`,
