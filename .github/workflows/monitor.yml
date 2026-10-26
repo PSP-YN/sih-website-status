@@ -1,0 +1,49 @@
+name: SIH Website Uptime Monitor
+
+on:
+  schedule:
+    # Run every 5 minutes in GitHub's cloud
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub web / mobile app
+
+concurrency:
+  group: sih-monitor
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir requests urllib3
+
+      - name: Monitor SIH Website (checks every 30 seconds)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC || vars.NTFY_TOPIC || 'sih_status_alert_psp' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          echo "Starting monitor loop (runs for ~4 minutes)..."
+          # Run check every 30 seconds for 8 iterations within the 5-min window
+          for i in {1..8}; do
+            echo "--- Polling Attempt $i/8 at $(date) ---"
+            python3 check_sih.py
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 10 ]; then
+              echo ">>> Website is ONLINE! Notification dispatched to phone. Stopping current loop."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Completed loop. Will be triggered again by the next scheduled run."
