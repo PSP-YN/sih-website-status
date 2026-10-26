@@ -63,6 +63,14 @@ async function checkSIH(isManual = false) {
 
     if (isGatewayError || isServerError || isMaintenance) {
       console.log(`[${timestamp}] SIH is DOWN (Status ${status})`);
+      if (isManual) {
+        await sendNtfyNotification(
+          "[Cloudflare] SIH is STILL DOWN",
+          `🔴 SIH Portal is currently DOWN / Gateway Error\n\nStatus: HTTP ${status}\nLink: ${SIH_URL}\n\nChecking every 60s. Will send full green alert when UP.`,
+          "default",
+          "red_circle,warning,x"
+        );
+      }
       return {
         online: false,
         status,
@@ -74,9 +82,10 @@ async function checkSIH(isManual = false) {
     if (status === 200) {
       console.log(`[${timestamp}] SIH is ONLINE! Sending push notification...`);
       await sendNtfyNotification(
-        "[Cloudflare] SIH WEBSITE IS ONLINE!",
-        `SIH Portal is back online!\n\nLink: ${SIH_URL}\n\nSubmit your PPT now!`,
-        "urgent"
+        "[Cloudflare] SIH IS ONLINE!",
+        `🟢🟢 SIH Portal is back online!\n\nLink: ${SIH_URL}\n\nSubmit your PPT now!`,
+        "urgent",
+        "green_circle,white_check_mark,tada,rocket"
       );
       return {
         online: true,
@@ -98,14 +107,14 @@ async function checkSIH(isManual = false) {
   }
 }
 
-async function sendNtfyNotification(title, message, priority = "urgent") {
+async function sendNtfyNotification(title, message, priority = "urgent", tags = "white_check_mark,tada") {
   const ntfyUrl = `https://ntfy.sh/${NTFY_TOPIC}`;
   await fetch(ntfyUrl, {
     method: "POST",
     headers: {
       Title: title,
       Priority: priority,
-      Tags: "tada,rotating_light,white_check_mark",
+      Tags: tags,
       Click: SIH_URL,
       Actions: `view, Open SIH Portal, ${SIH_URL}`,
     },

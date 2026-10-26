@@ -30,7 +30,7 @@ HEADERS = {
 }
 
 
-def send_ntfy_notification(title: str, message: str, priority: str = "urgent"):
+def send_ntfy_notification(title: str, message: str, priority: str = "urgent", tags: str = "white_check_mark,tada"):
     """Send free instant push notification via ntfy.sh to phone."""
     try:
         url = f"https://ntfy.sh/{NTFY_TOPIC}"
@@ -39,13 +39,13 @@ def send_ntfy_notification(title: str, message: str, priority: str = "urgent"):
         headers = {
             "Title": safe_title or "SIH Status Alert",
             "Priority": priority,  # max/urgent causes loud alarm on phone
-            "Tags": "tada,rotating_light,white_check_mark",
+            "Tags": tags,
             "Click": SIH_URL,
             "Actions": f"view, Open SIH Portal, {SIH_URL}",
         }
         res = requests.post(url, data=message.encode("utf-8"), headers=headers, timeout=10)
         if res.status_code == 200:
-            print(f"[✓] Push notification successfully sent via ntfy.sh/{NTFY_TOPIC}")
+            print(f"[✓] Push notification successfully sent via ntfy.sh/{NTFY_TOPIC} ({tags})")
         else:
             print(f"[!] ntfy.sh returned status {res.status_code}: {res.text}")
     except Exception as e:
@@ -120,20 +120,19 @@ def check_sih_status():
         return False, f"Error: {e}"
 
 
-def monitor_continuous(interval_seconds: int = 60, max_iterations: int = None, send_startup_ping: bool = False):
+def monitor_continuous(
+    interval_seconds: int = 60,
+    max_iterations: int = None,
+    send_startup_ping: bool = False,
+    down_notify_every: int = 3
+):
     """
     Monitors SIH website continuously every `interval_seconds`.
-    When online, sends urgent notifications to phone every 60 seconds.
+    - Sends RED alerts while site is DOWN (on start and every `down_notify_every` cycles).
+    - Sends FULL GREEN URGENT alarms every 60s when site is ONLINE.
     """
     iteration = 0
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting continuous monitor (interval: {interval_seconds}s)...")
-
-    if send_startup_ping:
-        send_ntfy_notification(
-            "[GitHub Actions] Monitor Active",
-            f"SIH monitor is running in GitHub's cloud!\nChecking https://sih.gov.in every {interval_seconds}s.\nWebsite is currently DOWN. We will alert you the moment it goes LIVE.",
-            priority="default"
-        )
 
     while True:
         iteration += 1
@@ -142,18 +141,39 @@ def monitor_continuous(interval_seconds: int = 60, max_iterations: int = None, s
         print(f"[{now_str}] Check #{iteration}: {details}")
 
         if is_online:
-            title = "[GitHub Actions] SIH WEBSITE IS ONLINE!"
+            title = "[GitHub Actions] SIH IS ONLINE!"
             message = (
-                f"SIH Portal is LIVE and responding!\n\n"
+                f"🟢🟢 SIH Portal is LIVE and accessible!\n\n"
                 f"Status: {details}\n"
                 f"Link: {SIH_URL}\n\n"
-                f"Submit your PPT now! (Alert #{iteration})"
+                f"👉 Submit your PPT now! (Alert #{iteration})"
             )
-            print(f">>> [{now_str}] SITE IS ONLINE! Sending urgent notification to phone...")
-            send_ntfy_notification(title, message, priority="urgent")
+            print(f">>> [{now_str}] SITE IS ONLINE! Sending GREEN urgent alarm to phone...")
+            send_ntfy_notification(
+                title=title,
+                message=message,
+                priority="urgent",
+                tags="green_circle,white_check_mark,tada,rocket"
+            )
             send_telegram_notification(f"<b>{title}</b>\n\n{message}")
         else:
-            print(f"[{now_str}] Site is down/gateway error. Waiting {interval_seconds}s...")
+            print(f"[{now_str}] Site is down/gateway error.")
+            # Send RED notification on first check and periodically every N minutes
+            if iteration == 1 or (iteration % down_notify_every == 0):
+                red_title = "[GitHub Actions] SIH is STILL DOWN"
+                red_message = (
+                    f"🔴 SIH Portal is currently DOWN / Gateway Error\n\n"
+                    f"Status: {details}\n"
+                    f"Check: #{iteration} (checked every {interval_seconds}s)\n\n"
+                    f"⏳ Will sound full green alarm as soon as it goes live."
+                )
+                print(f">>> [{now_str}] Sending RED down notification to phone...")
+                send_ntfy_notification(
+                    title=red_title,
+                    message=red_message,
+                    priority="default",
+                    tags="red_circle,warning,x"
+                )
 
         if max_iterations and iteration >= max_iterations:
             print(f"Reached max iterations ({max_iterations}). Exiting.")
@@ -179,9 +199,14 @@ def main():
     interval = int(os.environ.get("CHECK_INTERVAL", "60"))
     # Max iterations per run (e.g., 20 checks for 20 minutes before GitHub Actions rotates)
     max_iter = int(os.environ.get("MAX_ITERATIONS", "0")) or None
-    startup_ping = os.environ.get("STARTUP_PING", "true").lower() in ("true", "1", "yes")
+    # Send red notification every N checks while down (default: every 3 checks = 3 minutes)
+    down_notify_every = int(os.environ.get("DOWN_NOTIFY_EVERY", "3"))
 
-    monitor_continuous(interval_seconds=interval, max_iterations=max_iter, send_startup_ping=startup_ping)
+    monitor_continuous(
+        interval_seconds=interval,
+        max_iterations=max_iter,
+        down_notify_every=down_notify_every
+    )
 
 
 if __name__ == "__main__":

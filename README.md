@@ -65,31 +65,14 @@ If you have a free Cloudflare account, you can deploy a worker that checks every
 
 1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create application** → **Create Worker**.
 2. Paste the code from [`cloudflare-worker.js`](cloudflare-worker.js).
-3. Update `const NTFY_TOPIC = "your_topic_name";` at the top.
-4. Click **Deploy**.
-5. Go to Worker **Settings** → **Triggers** → **Cron Triggers** → **Add Cron Trigger**:
+3. Click **Deploy**.
+4. Go to Worker **Settings** → **Triggers** → **Cron Triggers** → **Add Cron Trigger**:
    - Set expression to `* * * * *` (Every minute).
-6. That's it! Cloudflare runs it every minute 24/7 for free.
+5. That's it! Cloudflare runs it every minute 24/7 for free.
 
 ---
 
-### Method C: UptimeRobot Mobile App (Zero Code)
+## 🔍 Visual Notifications
 
-If you don't want to use GitHub or Cloudflare:
-1. Install **UptimeRobot** from Google Play or App Store.
-2. Create a free account.
-3. Add a new monitor:
-   - Type: **HTTP(s)**
-   - URL: `https://sih.gov.in/`
-   - Monitoring Interval: `5 minutes`
-4. Since the site currently returns `403 Forbidden`, UptimeRobot will show it as **DOWN**.
-5. As soon as SIH goes back up (HTTP 200), the app will send an alert sound directly to your phone.
-
----
-
-## 🔍 Local Quick Run
-
-To check current status locally anytime:
-```bash
-python3 check_sih.py
-```
+- **🔴 RED Alert**: Sent on startup and every 3 minutes while the site remains DOWN / Gateway 403, confirming that the cloud monitor is actively watching.
+- **🟢 GREEN Alert**: Sent urgently every 60 seconds the second SIH portal is back online with direct links to submit your PPT.
