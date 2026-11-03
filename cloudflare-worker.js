@@ -20,13 +20,13 @@ export default {
 
     // If you visit /test, it triggers a test push notification to phone
     if (url.pathname === "/test") {
-      await sendNtfyNotification(
+      const res = await sendNtfyNotification(
         "[Cloudflare] Test Ping",
         "Test successful! Cloudflare Worker is active and monitoring SIH every 60 seconds.",
         "default"
       );
-      return new Response("Test notification sent to your phone via ntfy!", {
-        headers: { "Content-Type": "text/plain" },
+      return new Response(JSON.stringify(res, null, 2), {
+        headers: { "Content-Type": "application/json" },
       });
     }
 
@@ -63,19 +63,13 @@ async function checkSIH(isManual = false) {
 
     if (isGatewayError || isServerError || isMaintenance) {
       console.log(`[${timestamp}] SIH is DOWN (Status ${status})`);
-      if (isManual) {
-        await sendNtfyNotification(
-          "[Cloudflare] SIH is STILL DOWN",
-          `🔴 SIH Portal is currently DOWN / Gateway Error\n\nStatus: HTTP ${status}\nLink: ${SIH_URL}\n\nChecking every 60s. Will send full green alert when UP.`,
-          "default",
-          "red_circle,warning,x"
-        );
-      }
       return {
         online: false,
         status,
         message: "Site still down (Azure Gateway / 403 / Maintenance)",
         checkedAt: timestamp,
+        headers: Object.fromEntries(response.headers.entries()),
+        bodySnippet: body.slice(0, 500),
       };
     }
 
@@ -109,15 +103,21 @@ async function checkSIH(isManual = false) {
 
 async function sendNtfyNotification(title, message, priority = "urgent", tags = "white_check_mark,tada") {
   const ntfyUrl = `https://ntfy.sh/${NTFY_TOPIC}`;
-  await fetch(ntfyUrl, {
-    method: "POST",
-    headers: {
-      Title: title,
-      Priority: priority,
-      Tags: tags,
-      Click: SIH_URL,
-      Actions: `view, Open SIH Portal, ${SIH_URL}`,
-    },
-    body: message,
-  });
+  try {
+    const res = await fetch(ntfyUrl, {
+      method: "POST",
+      headers: {
+        Title: title,
+        Priority: priority,
+        Tags: tags,
+        Click: SIH_URL,
+        Actions: `view, Open SIH Portal, ${SIH_URL}`,
+      },
+      body: message,
+    });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, body: text };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }

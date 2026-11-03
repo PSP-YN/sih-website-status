@@ -123,57 +123,86 @@ def check_sih_status():
 def monitor_continuous(
     interval_seconds: int = 60,
     max_iterations: int = None,
-    send_startup_ping: bool = False,
-    down_notify_every: int = 3
+    heartbeat_every: int = 0
 ):
     """
     Monitors SIH website continuously every `interval_seconds`.
-    - Sends RED alerts while site is DOWN (on start and every `down_notify_every` cycles).
-    - Sends FULL GREEN URGENT alarms every 60s when site is ONLINE.
+    - Only sends notifications when the status CHANGES (e.g. DOWN -> UP).
+    - Avoids spamming notifications continuously when state hasn't changed.
     """
     iteration = 0
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting continuous monitor (interval: {interval_seconds}s)...")
+    last_state = None  # None: initial, True: online, False: offline
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting state-aware monitor (interval: {interval_seconds}s)...")
+    print(f"[*] State change notifications only: You will NOT be spammed continuously.")
 
     while True:
         iteration += 1
         now_str = time.strftime('%Y-%m-%d %H:%M:%S')
         is_online, details = check_sih_status()
-        print(f"[{now_str}] Check #{iteration}: {details}")
+
+        # Check if state changed
+        state_changed = (last_state is not None and is_online != last_state)
+        first_run = (last_state is None)
 
         if is_online:
-            title = "[GitHub Actions] SIH IS ONLINE!"
-            message = (
-                f"🟢🟢 SIH Portal is LIVE and accessible!\n\n"
-                f"Status: {details}\n"
-                f"Link: {SIH_URL}\n\n"
-                f"👉 Submit your PPT now! (Alert #{iteration})"
-            )
-            print(f">>> [{now_str}] SITE IS ONLINE! Sending GREEN urgent alarm to phone...")
-            send_ntfy_notification(
-                title=title,
-                message=message,
-                priority="urgent",
-                tags="green_circle,white_check_mark,tada,rocket"
-            )
-            send_telegram_notification(f"<b>{title}</b>\n\n{message}")
-        else:
-            print(f"[{now_str}] Site is down/gateway error.")
-            # Send RED notification on first check and periodically every N minutes
-            if iteration == 1 or (iteration % down_notify_every == 0):
-                red_title = "[GitHub Actions] SIH is STILL DOWN"
-                red_message = (
-                    f"🔴 SIH Portal is currently DOWN / Gateway Error\n\n"
+            if state_changed or first_run:
+                title = "[SIH Monitor] SIH IS ONLINE!"
+                message = (
+                    f"🟢🟢 SIH Portal is LIVE and accessible!\n\n"
                     f"Status: {details}\n"
-                    f"Check: #{iteration} (checked every {interval_seconds}s)\n\n"
-                    f"⏳ Will sound full green alarm as soon as it goes live."
+                    f"Link: {SIH_URL}\n\n"
+                    f"👉 Submit your PPT now! (Detected at {now_str})"
                 )
-                print(f">>> [{now_str}] Sending RED down notification to phone...")
+                print(f"\n>>> [{now_str}] *** STATUS ALERT: SITE IS ONLINE! ***")
+                print(f">>> Details: {details}")
+                print(f">>> Sending urgent notification to phone...")
+                send_ntfy_notification(
+                    title=title,
+                    message=message,
+                    priority="urgent",
+                    tags="green_circle,white_check_mark,tada,rocket"
+                )
+                send_telegram_notification(f"<b>{title}</b>\n\n{message}")
+            else:
+                # Same state: silent check, just log to console
+                print(f"[{now_str}] Check #{iteration}: ONLINE (No change, silent) - {details}")
+
+        else:
+            if state_changed:
+                red_title = "[SIH Monitor] SIH WENT DOWN"
+                red_message = (
+                    f"🔴 SIH Portal is currently DOWN or inaccessible.\n\n"
+                    f"Status: {details}\n"
+                    f"Time: {now_str}\n\n"
+                    f"⏳ Will sound full urgent alarm as soon as it goes live."
+                )
+                print(f"\n>>> [{now_str}] *** STATUS ALERT: SITE WENT DOWN! ***")
+                print(f">>> Details: {details}")
+                print(f">>> Sending alert to phone...")
                 send_ntfy_notification(
                     title=red_title,
                     message=red_message,
                     priority="default",
                     tags="red_circle,warning,x"
                 )
+                send_telegram_notification(f"<b>{red_title}</b>\n\n{red_message}")
+            elif first_run:
+                print(f"[{now_str}] Check #{iteration}: DOWN ({details})")
+                print(f"[*] Watching silently every {interval_seconds}s. Alarm will trigger only when it goes UP.")
+            else:
+                print(f"[{now_str}] Check #{iteration}: DOWN ({details}) - silent")
+
+        # Optional periodic heartbeat (disabled by default)
+        if heartbeat_every > 0 and iteration % heartbeat_every == 0 and not state_changed:
+            status_text = "ONLINE 🟢" if is_online else "DOWN 🔴"
+            send_ntfy_notification(
+                title=f"[SIH Monitor] Heartbeat #{iteration}",
+                message=f"Monitor is actively running. Current status: {status_text}",
+                priority="low",
+                tags="information_source"
+            )
+
+        last_state = is_online
 
         if max_iterations and iteration >= max_iterations:
             print(f"Reached max iterations ({max_iterations}). Exiting.")
@@ -185,27 +214,37 @@ def monitor_continuous(
 def main():
     if "--test" in sys.argv:
         print(">>> Sending TEST notification to verify phone reception...")
-        title = "SIH Alert Test Notification"
+        title = "[SIH Monitor] Test Notification"
         message = (
             "If you received this, phone notifications are working perfectly!\n"
-            "You will be alerted every 60 seconds the moment SIH portal is online."
+            "You will be alerted immediately when SIH status changes."
         )
         send_ntfy_notification(title, message, priority="urgent")
         send_telegram_notification(f"<b>{title}</b>\n\n{message}")
         print(">>> Test notification sent.")
         return
 
-    # Interval in seconds (default: 60)
+    if "--once" in sys.argv:
+        is_online, details = check_sih_status()
+        print(f"Status: {'ONLINE' if is_online else 'DOWN'} ({details})")
+        sys.exit(0 if is_online else 1)
+
+    # Parse interval from env or --interval flag
     interval = int(os.environ.get("CHECK_INTERVAL", "60"))
-    # Max iterations per run (e.g., 20 checks for 20 minutes before GitHub Actions rotates)
+    if "--interval" in sys.argv:
+        try:
+            idx = sys.argv.index("--interval")
+            interval = int(sys.argv[idx + 1])
+        except (ValueError, IndexError):
+            pass
+
     max_iter = int(os.environ.get("MAX_ITERATIONS", "0")) or None
-    # Send red notification every N checks while down (default: every 3 checks = 3 minutes)
-    down_notify_every = int(os.environ.get("DOWN_NOTIFY_EVERY", "3"))
+    heartbeat = int(os.environ.get("HEARTBEAT_EVERY", "0"))
 
     monitor_continuous(
         interval_seconds=interval,
         max_iterations=max_iter,
-        down_notify_every=down_notify_every
+        heartbeat_every=heartbeat
     )
 
 
