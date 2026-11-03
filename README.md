@@ -76,3 +76,11 @@ If you have a free Cloudflare account, you can deploy a worker that checks every
 
 - **🔴 RED Alert**: Sent on startup and every 3 minutes while the site remains DOWN / Gateway 403, confirming that the cloud monitor is actively watching.
 - **🟢 GREEN Alert**: Sent urgently every 60 seconds the second SIH portal is back online with direct links to submit your PPT.
+
+
+## Project documentation
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
